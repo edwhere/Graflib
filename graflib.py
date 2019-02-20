@@ -33,6 +33,11 @@ class Graph(object):
         """ Provides the number of nodes in the graph """
         return len(self.__data)
 
+    def get_nodes(self):
+        """ Returns the list of all nodes (identified by their IDs) in the graph
+        """
+        return self.__data.keys()
+
     def node_exists(self, node_id):
         """ Verifies if a node identified by an ID (integer or string) already exists in the graph.
         Returns True if node exists or False otherwise.
@@ -48,11 +53,17 @@ class Graph(object):
         """
         return False if self.node_exists(node_id) else True
 
-    def has_payload(self, node_id):
+    def payload_exist(self, node_id):
         """ Verifies if a node identified by an ID (integer or string) has a payload. Returns True if a payload
         has been added to the node.
         """
         return self.retrieve_payload(node_id) is not None
+
+    def payload_does_not_exist(self, node_id):
+        """ Checks if a node identified by its ID contains no payload. Returns True if payload has not been
+        added to the node.
+        """
+        return False if self.payload_exist(node_id) else True
 
     def link_exists(self, init_id, dest_id):
         """ Verifies if a certain link between two nodes (identified by their IDs) already exists in the graph.
@@ -60,8 +71,8 @@ class Graph(object):
         exist.
         """
         if self.node_exists(init_id) and self.node_exists(dest_id):
-            links1 = self.__data[init_id]['near']
-            links2 = self.__data[dest_id]['near']
+            links1 = [link[0] for link in self.__data[init_id]['near']]
+            links2 = [link[0] for link in self.__data[dest_id]['near']]
 
             if dest_id in links1 and init_id in links2:
                 return True
@@ -76,19 +87,22 @@ class Graph(object):
         """
         return False if self.link_exists(init_id, dest_id) else True
 
-    def get_nodes(self):
-        """ Returns the list of all nodes (identified by their IDs) in the graph
-        """
-        return self.__data.keys()
-
     def get_links(self, node_id):
-        """ Returns a list of neighbor nodes for a node identified by its ID (string or integer).
+        """ Returns a list of tuples with link info for a node identified by its ID (string or integer).
+        The list contains tuples; the first element is a neighbor node ID and the second element is the link weight.
         Returns None if the target node does not exist in the graph.
         """
         if self.node_exists(node_id):
             return self.__data[node_id]["near"]
         else:
             return None
+
+    def get_neighbors(self, node_id):
+        """ Returns a list of neighbor nodes for a node identified by its ID (string or integer).
+        The list contains only neighbor nodes and not link weights. Returns None if the target node does not exist.
+        """
+        if self.node_exists(node_id):
+            return [link[0] for link in self.get_links(node_id)]
 
     def add_node(self, node_id):
         """ Adds a node (identified by its string or integer ID) to the graph without any links.
@@ -111,14 +125,35 @@ class Graph(object):
             added_nodes += result
         return added_nodes
 
-    def remove_link(self, init_id, dest_id):
-        """ Removes a link between two nodes identified by their string or integer IDs. Returns the
-        number of links removed.
+    def get_link_tuple(self, init_id, dest_id):
+        """ Extracts the tuple that represents the link between the init_id and dest_id nodes. If the link
+        exists, the response is a tuple of the form (dest_id, weight). If the link does not exist, it
+        returns (dest_id, None)
         """
         if self.link_exists(init_id, dest_id):
-            self.__data[init_id]['near'].remove(dest_id)
-            self.__data[dest_id]['near'].remove(init_id)
-            return 1
+            all_tuples = self.get_links(init_id)
+            for tuple in all_tuples:
+                if tuple[0] == dest_id:
+                    return tuple
+            return dest_id, None
+        else:
+            return dest_id, None
+
+    def remove_link(self, init_id, dest_id):
+        """ Removes a link between two nodes identified by their string or integer IDs. Returns the
+        number of links removed. Returns the number of removed links (0 or 1)
+        """
+        # TODO: Handle weights in links
+        if self.link_exists(init_id, dest_id):
+            tuple_forward = self.get_link_tuple(init_id, dest_id)
+            tuple_backward = self.get_link_tuple(dest_id, init_id)
+
+            if tuple_forward[1] is None or tuple_backward[1] is None:
+                return 0
+            else:
+                self.__data[init_id]['near'].remove(tuple_forward)
+                self.__data[dest_id]['near'].remove(tuple_backward)
+                return 1
         else:
             return 0
 
@@ -148,30 +183,36 @@ class Graph(object):
         for nd in node_list:
             self.remove_node(nd)
 
-    def add_link(self, init_id, dest_id):
-        """ Adds a link between two nodes identified by their string or integer IDs.
+    def add_link(self, init_id, dest_id, weight=1.0):
+        """ Adds a link between two nodes identified by their string or integer IDs using the given weight value.
         Returns number of added links. It can be 0 if any of the two nodes does not exist.
         """
         if self.node_exists(init_id) and self.node_exists(dest_id):
-            self.__data[init_id]['near'].add(dest_id)
-            self.__data[dest_id]['near'].add(init_id)
+            tuple_forward = (dest_id, weight)
+            tuple_backward = (init_id, weight)
+
+            self.__data[init_id]['near'].add(tuple_forward)
+            self.__data[dest_id]['near'].add(tuple_backward)
             return 1
         else:
             return 0
 
+# TODO: Update functions below to account for a weight value as link 
+
     def add_links_from_list(self, link_list):
-        """ Adds a list of links to the graph. The list contains tuples with each tuple defining
-        a link between two nodes. Returns the number of links added.
+        """ Adds a list of links to the graph. The list contains 3-element tuples with each tuple representing
+        a link: (id_initial_node, id_destination_node, weight). Returns the number of links added.
         """
         count = 0
         for edge in link_list:
-            result = self.add_link(edge[0], edge[1])
-            count += result
+            if len(edge) == 3:
+                result = self.add_link(edge[0], edge[1], edge[2])
+                count += result
         return count
 
     def remove_links_from_list(self, link_list):
         """ Removes a list of links from the graph. The list contains tuples with each tuple
-        defining a link between two nodes. Returns the number of removed links.
+        defined as (id_initial_node, id_destination_node). Returns the number of removed links.
         """
         count = 0
         for edge in link_list:
