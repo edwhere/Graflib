@@ -1,14 +1,16 @@
 """ Library for building and using undirected graphs. It defines a generic Graph class and its methods
 
-    A graph G(N, L) is a collection of nodes (also called vertices) that connect to each other using
-    links (also called edges). A graph is called connected if there are no isolated nodes. A graph
-    is called undirected if all links are bi-directional. A graph is called simple if it does not have
-    links from a node to the same node, and if there can be at most one link from node to node.
+    A graph G(N, L, W) is a collection of nodes N (also called vertices) that connect to each other using
+    links L (also called edges). Links can have weights W.
+
+    A graph is called connected if there are no isolated nodes. A graph is called undirected if all
+    links are bi-directional. A graph is called simple if it does not have links from a node to the same
+    node, and if there can be at most one link from node to node.
 
     This library supports simple undirected graphs (connected or non-connected).
 
     In this implementation a graph is defined as a dictionary with the node ID as the key. Each key
-    is associated with a list of neighbors and a payload.
+    is associated with a list of neighbors, weights, and a payload.
 """
 
 import copy
@@ -20,13 +22,14 @@ __license__ = "Not ready for distribution"
 __version__ = "0.1.0"
 __status__ = "In development"
 
-DEFAULT_INDENT = 4  # Default indent size for pretty format of saved data
+DEFAULT_INDENT = 4  # Default indent size for saving data using a pretty format
 BASE_NODE_DATA = {'near': set(), 'payload': None}
 
 
 class Graph(object):
-    def __init__(self):
+    def __init__(self, has_weights=False):
         # Define private variables
+        self.__has_weights = has_weights
         self.__data = {}     # dictionary object that maps a node with neighbors and payload
 
     def size(self):
@@ -57,7 +60,7 @@ class Graph(object):
         """ Verifies if a node identified by an ID (integer or string) has a payload. Returns True if a payload
         has been added to the node.
         """
-        return self.retrieve_payload(node_id) is not None
+        return self.get_payload(node_id) is not None
 
     def payload_does_not_exist(self, node_id):
         """ Checks if a node identified by its ID contains no payload. Returns True if payload has not been
@@ -88,14 +91,19 @@ class Graph(object):
         return False if self.link_exists(init_id, dest_id) else True
 
     def get_links(self, node_id):
-        """ Returns a list of tuples with link info for a node identified by its ID (string or integer).
-        The list contains tuples; the first element is a neighbor node ID and the second element is the link weight.
+        """ Returns a list of links for a node identified by its ID (string or integer).
+        If the graph has no weights, it returns a list of tuples of the form (node_id, next_id).
+        If it is a weighted graph, it returns a list of tuples of the form (node_id, next_id, weight).
         Returns None if the target node does not exist in the graph.
         """
-        if self.node_exists(node_id):
-            return self.__data[node_id]["near"]
-        else:
+        if self.node_does_not_exist(node_id):
             return None
+        else:
+            graph_links = self.__data[node_id]['near']
+            if self.__has_weights:
+                return [(node_id, elem[0], elem[1]) for elem in graph_links]
+            else:
+                return [(node_id, elem[0]) for elem in graph_links]
 
     def get_neighbors(self, node_id):
         """ Returns a list of neighbor nodes for a node identified by its ID (string or integer).
@@ -103,6 +111,8 @@ class Graph(object):
         """
         if self.node_exists(node_id):
             return [link[0] for link in self.get_links(node_id)]
+        else:
+            return None
 
     def add_node(self, node_id):
         """ Adds a node (identified by its string or integer ID) to the graph without any links.
@@ -125,30 +135,29 @@ class Graph(object):
             added_nodes += result
         return added_nodes
 
-    def get_link_tuple(self, init_id, dest_id):
-        """ Extracts the tuple that represents the link between the init_id and dest_id nodes. If the link
-        exists, the response is a tuple of the form (dest_id, weight). If the link does not exist, it
-        returns (dest_id, None)
+    def __get_link_tuple(self, init_id, dest_id):
+        """ Private method to extract the tuple that represents the link between the init_id and dest_id nodes.
+        If the link exists, the response is a tuple of the form (dest_id, weight). If the graph has no weights,
+        the weight value is set to None. If the link does not exist this method returns None.
         """
         if self.link_exists(init_id, dest_id):
-            all_tuples = self.get_links(init_id)
+            all_tuples = self.__data[init_id]['near']
             for tuple in all_tuples:
                 if tuple[0] == dest_id:
                     return tuple
-            return dest_id, None
+            return None
         else:
-            return dest_id, None
+            return None
 
     def remove_link(self, init_id, dest_id):
-        """ Removes a link between two nodes identified by their string or integer IDs. Returns the
-        number of links removed. Returns the number of removed links (0 or 1)
+        """ Removes a link between two nodes identified by their IDs. Returns the
+        number of links removed (0 or 1).
         """
-        # TODO: Handle weights in links
         if self.link_exists(init_id, dest_id):
-            tuple_forward = self.get_link_tuple(init_id, dest_id)
-            tuple_backward = self.get_link_tuple(dest_id, init_id)
+            tuple_forward = self.__get_link_tuple(init_id, dest_id)
+            tuple_backward = self.__get_link_tuple(dest_id, init_id)
 
-            if tuple_forward[1] is None or tuple_backward[1] is None:
+            if tuple_forward is None or tuple_backward is None:
                 return 0
             else:
                 self.__data[init_id]['near'].remove(tuple_forward)
@@ -164,6 +173,7 @@ class Graph(object):
         if self.node_exists(node_id):
             # Get all neighbor nodes
             nbors = copy.deepcopy(self.__data[node_id]['near'])
+            nbors = [nbor[0] for nbor in nbors]
 
             # Remove links between the selected nodes and its neighbors
             for nb in nbors:
@@ -180,16 +190,28 @@ class Graph(object):
         """ Removes nodes from a node list (each node identified by its ID; a string or integer).
         Returns the number of removed nodes.
         """
+        count = 0
         for nd in node_list:
-            self.remove_node(nd)
+            res = self.remove_node(nd)
+            count += res
+        return count
 
-    def add_link(self, init_id, dest_id, weight=1.0):
-        """ Adds a link between two nodes identified by their string or integer IDs using the given weight value.
+    def add_link(self, init_id, dest_id, weight=None):
+        """ Adds a link between two nodes identified by their IDs and optionally a weight value.
+        If the graph has defined as having weights:
+           The weight value is assigned to the link. If no weight is given, the default is 1.0
+        If the graph has not been defined as having weights:
+           The weight value is ignored
+
         Returns number of added links. It can be 0 if any of the two nodes does not exist.
         """
         if self.node_exists(init_id) and self.node_exists(dest_id):
-            tuple_forward = (dest_id, weight)
-            tuple_backward = (init_id, weight)
+            if self.__has_weights:
+                tuple_forward = (dest_id, 1.0) if weight is None else (dest_id, weight)
+                tuple_backward = (init_id, 1.0) if weight is None else (init_id, weight)
+            else:
+                tuple_forward = (dest_id, None)
+                tuple_backward = (init_id, None)
 
             self.__data[init_id]['near'].add(tuple_forward)
             self.__data[dest_id]['near'].add(tuple_backward)
@@ -197,22 +219,36 @@ class Graph(object):
         else:
             return 0
 
-# TODO: Update functions below to account for a weight value as link 
-
     def add_links_from_list(self, link_list):
-        """ Adds a list of links to the graph. The list contains 3-element tuples with each tuple representing
-        a link: (id_initial_node, id_destination_node, weight). Returns the number of links added.
+        """ Adds a list of links to the graph. The list can contains  2-element or 3-element tuples:
+                             (init_id, dest_id) or (init_id, dest_id, weight)
+        If the Graph has weights, then
+               A 2-element tuple defines a link with a default weight of 1.0
+               A 3-element tuple defines a link with a given weigth
+        If the Graph has no weights, then
+               A 2-element tuple defines a link
+               In a 3-element tuple, the third element is ignored
+
+        Returns the number of links added.
         """
-        count = 0
-        for edge in link_list:
-            if len(edge) == 3:
-                result = self.add_link(edge[0], edge[1], edge[2])
+
+        if self.__has_weights:
+            count = 0
+            for edge in link_list:
+                e0, e1 = edge[0], edge[1]
+                result = self.add_link(e0, e1, 1.0) if len(edge) == 2 else self.add_link(e0, e1, edge[2])
                 count += result
-        return count
+            return count
+        else:
+            count = 0
+            for edge in link_list:
+                result = self.add_link(edge[0], edge[1])
+                count += result
+            return count
 
     def remove_links_from_list(self, link_list):
         """ Removes a list of links from the graph. The list contains tuples with each tuple
-        defined as (id_initial_node, id_destination_node). Returns the number of removed links.
+        defined as (init_id, dest_id). Returns the number of removed links.
         """
         count = 0
         for edge in link_list:
@@ -220,18 +256,11 @@ class Graph(object):
             count += result
         return count
 
-    def retrieve_payload(self, node_id):
+    def get_payload(self, node_id):
         """ Retrieves and returns the payload from a node identified by its ID (string or integer).
         Returns None if node does not exist or if node does not have any payload.
         """
         return None if self.node_does_not_exist(node_id) else self.__data[node_id]["payload"]
-
-    def retrieve_neighbors(self, node_id):
-        """ Retrieves the list of neighbors for a node identified by its string or integer ID.
-        If the node does not exist the result is None. If the node exists but it has no neighbors
-        the result is an empty list. Notice that this function returns a List object (not a set object).
-        """
-        return None if self.node_does_not_exist(node_id) else list(self.__data[node_id]["near"])
 
     def retrieve_node_data(self, node_id):
         """ Retrieves neighbors and payload for a node identified by its ID (string or integer).
@@ -239,10 +268,8 @@ class Graph(object):
         exist, the returned payload value is set to None. If the node does not have any neighbors,
         the returned neighbors value shows an empty list.
         """
-        if self.node_does_not_exist(node_id):
-            return None
-        else:
-            return self.__data[node_id]['near'], self.__data[node_id]['payload']
+        return self.get_neighbors(node_id), self.get_links(node_id)
+
 
     def add_payload(self, node_id, payload):
         """ Adds a payload to a node identified by its string or integer ID. The payload can be
@@ -261,8 +288,9 @@ class Graph(object):
         text_mode = ""
         nodes = self.get_nodes()
         for nd in nodes:
-            nbors, pload = self.retrieve_node_data(nd)
-            text_mode += "node: {},  near: {},  payload: {}\n".format(nd, nbors, pload)
+            links = self.get_links(nd)
+            pload = self.get_payload(nd)
+            text_mode += "node: {},  near: {},  payload: {}\n".format(nd, links, pload)
 
         return text_mode
 
@@ -290,7 +318,7 @@ class Graph(object):
             return
 
         # determine the links (edges) for the current node
-        links = self.retrieve_neighbors(current)
+        links = self.get_neighbors(current)
 
         # determine if any of the links has not been visited
         found = False
@@ -341,7 +369,7 @@ class Graph(object):
 
         # get current working node from a LIFO stack and find its neighbors
         current = stack.pop()
-        links = self.retrieve_neighbors(current)
+        links = self.get_neighbors(current)
 
         # find the subset of neighbors that have not yet been visited
         unvisited = []
@@ -359,7 +387,7 @@ class Graph(object):
         else:
             self.__rec_bfs_traverse(visited, stack)
 
-    def save_json(self, filepath, pretty=True):
+    def save_json(self, filepath, pretty=False):
         """ Saves graph data as a text file to the file whose path is given by filepath. Uses
         a json format with readable blank spaces (pretty is True) or without blank spaces (pretty is False).
         """
@@ -382,7 +410,9 @@ class Graph(object):
         """
         data_clone = copy.deepcopy(self.__data)
         for nd in data_clone.keys():
-            data_clone[nd]['neighbors'] = list(data_clone[nd]['near'])
+            nb_list = list(data_clone[nd]['near'])
+            nb_list_of_lists = [list(elem) for elem in nb_list]
+            data_clone[nd]['neighbors'] = nb_list_of_lists
             del data_clone[nd]['near']
         return data_clone
 
@@ -390,7 +420,8 @@ class Graph(object):
         """ Takes a dictionary from saved data (recovered_dict) and loads the dictionary as graph data. """
         self.__data = copy.deepcopy(recovered_dict)
         for nd in self.__data.keys():
-            self.__data[nd]['near'] = set(recovered_dict[nd]['neighbors'])
+            list_of_tuples = [tuple(elem) for elem in recovered_dict[nd]['neighbors']]
+            self.__data[nd]['near'] = set(list_of_tuples)
             del self.__data[nd]['neighbors']
 
     def is_connected_graph(self, init_id):
@@ -421,7 +452,7 @@ class Graph(object):
             new_layer_nodes = []
 
             for nd in layer_nodes:
-                for nid in self.retrieve_neighbors(nd):
+                for nid in self.get_neighbors(nd):
                     if nid not in visited:
                         visited.append(nid)
                         new_layer_nodes.append(nid)
@@ -488,7 +519,7 @@ class Graph(object):
             new_layer_nodes = []
 
             for nd in layer_nodes:
-                for nid in self.retrieve_neighbors(nd):
+                for nid in self.get_neighbors(nd):
                     if nid not in vis_map.keys():
                         vis_map[nid] = layer_count
                         new_layer_nodes.append(nid)
@@ -505,7 +536,7 @@ class Graph(object):
         node_path = [dest_id]
         counter = 0
         while current != init_id and counter < 1000:
-            nbors = self.retrieve_neighbors(current)
+            nbors = self.get_neighbors(current)
 
             min_layer = self.size() + 1  # large number that exceeds max layer value
             best_parent = None
