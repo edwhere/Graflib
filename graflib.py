@@ -110,7 +110,7 @@ class Graph(object):
         The list contains only neighbor nodes and not link weights. Returns None if the target node does not exist.
         """
         if self.node_exists(node_id):
-            return [link[0] for link in self.get_links(node_id)]
+            return [link[1] for link in self.get_links(node_id)]
         else:
             return None
 
@@ -595,3 +595,7 @@ if __name__ == "__main__":
     grnew.load_json(output_file)
 
     print(grnew)
+
+    print("=====TESTS ====")
+    print("neighbors of node 4: {}".format(gr.get_neighbors(4)))
+    print("links of node 4: {}".format((gr.get_links(4))))
